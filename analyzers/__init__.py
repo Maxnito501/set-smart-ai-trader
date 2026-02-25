@@ -4,6 +4,7 @@
 """
 
 from .short_term import ShortTermAnalyzer
+from .long_term import LongTermAnalyzer  # 🔴 เพิ่มบรรทัดนี้
 
-__all__ = ['ShortTermAnalyzer']
+__all__ = ['ShortTermAnalyzer', 'LongTermAnalyzer']  # 🔴 แก้ไข
 __version__ = '0.1.0'
