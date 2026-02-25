@@ -36,9 +36,9 @@ api_key = None
 api_status = "⚠️ รอการตั้งค่า"
 
 try:
-    # 🔴 ดึงค่า FROM STREAMLIT SECRETS
+    # ใช้ get() เพื่อความปลอดภัย
     if "SETSMART_API_KEY" in st.secrets:
-        api_key = os.getenv["SETSMART_API_KEY"]
+        api_key = st.secrets["SETSMART_API_KEY"]
         if api_key and api_key != "4bed3691-2ac4-4881-85f5-7b2747810857":
             api_status = "✅ เชื่อมต่อ API แล้ว"
             st.session_state["api_key"] = api_key
@@ -46,6 +46,9 @@ try:
             api_status = "⚠️ กรุณาใส่ API Key จริงใน Secrets"
     else:
         api_status = "⚠️ ไม่พบ SETSMART_API_KEY ใน Secrets"
+except TypeError:
+    # กรณีที่ st.secrets ถูกเรียกเป็นฟังก์ชัน
+    api_status = "❌ Error: เรียกใช้ st.secrets ผิดวิธี"
 except Exception as e:
     api_status = f"❌ Error: {str(e)}"
 
@@ -411,4 +414,5 @@ st.markdown(
     "</div>",
     unsafe_allow_html=True
 )
+
 
