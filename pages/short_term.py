@@ -15,9 +15,11 @@ import requests
 # ============================================
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_eod_price(symbol):
-    """ดึงราคาปิดล่าสุด - ใช้วันก่อนหน้าอัตโนมัติ"""
-    # ลอง 3 วันย้อนหลัง
+    # 🔴 เพิ่ม debug
+    st.write("🔍 **DEBUG MODE**")
+    
     for days_back in [1, 2, 3]:
         test_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         
@@ -31,16 +33,27 @@ def get_eod_price(symbol):
             }
             headers = {"x-api-key": api_key}
             
+            # 🔴 แสดง URL และ Parameter
+            st.write(f"📡 Calling: {url}")
+            st.write(f"📦 Params: {params}")
+            st.write(f"🔑 API Key: {api_key[:5]}...{api_key[-5:]}")
+            
             response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            st.write(f"📡 Status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
+                st.write(f"✅ Response: {data}")
                 if data and len(data) > 0:
-                    return data[0]  # เจอแล้ว
-        except:
-            continue
+                    return data[0]
+            else:
+                st.write(f"❌ Response: {response.text}")
+                
+        except Exception as e:
+            st.write(f"❌ Exception: {e}")
     
-    return None  # ไม่เจอเลย
+    return None
 
 @st.cache_data(ttl=300)
 def get_historical_eod(symbol, days=45):
