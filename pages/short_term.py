@@ -1,6 +1,6 @@
 """
 📁 pages/short_term.py
-เล่นสั้น - ระบบตาทิพย์ ครบทุกดัชนีที่คุยกัน
+เล่นสั้น - ระบบตาทิพย์ ครบทุกดัชนี
 """
 
 import streamlit as st
@@ -13,7 +13,7 @@ import time
 import random
 
 # ============================================
-# ส่วนที่ 1: Yahoo Finance Client
+# ส่วนที่ 1: Yahoo Finance Client (มี Cache)
 # ============================================
 
 class YahooClient:
@@ -21,17 +21,28 @@ class YahooClient:
     
     def __init__(self):
         self.cache = {}
+        print("✅ เชื่อมต่อ Yahoo Finance แล้ว")
     
-    def get_price(self, symbol):
-    try:
-        print(f"🔍 กำลังเรียก {symbol}...")
-        ticker = yf.Ticker(f"{symbol}.BK")
-        hist = ticker.history(period="5d")
-        print(f"✅ ได้ข้อมูล {symbol}")
-        # ... ที่เหลือ
-    except Exception as e:
-        print(f"❌ Error {symbol}: {e}")
-        return None
+    # 🔥 CACHE 5 นาที
+    @st.cache_data(ttl=300)
+    def get_price_cached(self, symbol):
+        """ดึงราคาแบบมี Cache"""
+        return self._get_price(symbol)
+    
+    # 🔥 CACHE 10 นาที
+    @st.cache_data(ttl=600)
+    def get_historical_cached(self, symbol, days=60):
+        """ดึงข้อมูลย้อนหลังแบบมี Cache"""
+        return self._get_historical(symbol, days)
+    
+    def _get_price(self, symbol):
+        """ดึงราคาปัจจุบัน (จริง)"""
+        try:
+            ticker = yf.Ticker(f"{symbol}.BK")
+            hist = ticker.history(period="5d")
+            
+            if hist.empty:
+                return None
             
             current = hist['Close'].iloc[-1]
             prev = hist['Close'].iloc[-2]
@@ -55,10 +66,11 @@ class YahooClient:
                 "prev_close": round(prev, 2)
             }
         except Exception as e:
+            print(f"❌ Error {symbol}: {e}")
             return None
     
-    def get_historical(self, symbol, days=60):
-        """ดึงข้อมูลย้อนหลัง"""
+    def _get_historical(self, symbol, days=60):
+        """ดึงข้อมูลย้อนหลัง (จริง)"""
         try:
             ticker = yf.Ticker(f"{symbol}.BK")
             hist = ticker.history(period=f"{days+20}d")
@@ -79,6 +91,7 @@ class YahooClient:
                 "volume": hist['Volume'].tolist()
             }
         except Exception as e:
+            print(f"❌ Error historical {symbol}: {e}")
             return None
 
 
@@ -138,13 +151,10 @@ def calculate_stochastic(prices, highs, lows, period=14):
     else:
         k = ((current - recent_low) / (recent_high - recent_low)) * 100
     
-    return round(k, 2), round(k, 2)  # Simplified
+    return round(k, 2), round(k, 2)
 
 def elliott_wave_analysis(prices, volumes):
-    """
-    วิเคราะห์ Elliott Wave ขั้นสูง
-    คืนค่า: wave_name, signal, target, support, description
-    """
+    """วิเคราะห์ Elliott Wave"""
     if len(prices) < 30:
         return "ข้อมูลไม่พอ", "neutral", 0, 0, ""
     
@@ -152,42 +162,36 @@ def elliott_wave_analysis(prices, volumes):
     recent_high = max(prices[-15:])
     recent_low = min(prices[-15:])
     
-    # วิเคราะห์ Volume ประกอบ
     vol_recent = sum(volumes[-5:]) / 5
     vol_prev = sum(volumes[-10:-5]) / 5
     vol_ratio = vol_recent / vol_prev if vol_prev > 0 else 1
     
-    # ตรวจจับคลื่น
     if current > recent_high * 0.98:
         if vol_ratio > 1.3:
-            return "🌊 คลื่น 3 (กำลังขึ้นแรง)", "buy", recent_high * 1.08, recent_low, "Volume หนุน แข็งแรง"
+            return "🌊 คลื่น 3 (กำลังขึ้น)", "buy", recent_high * 1.08, recent_low, "Volume หนุน"
         else:
-            return "🌊 คลื่น 5 (ใกล้จบ)", "sell", current, recent_low * 0.97, "Volume ไม่มา ระวัง"
+            return "🌊 คลื่น 5 (ใกล้จบ)", "sell", current, recent_low * 0.97, "Volume ไม่มา"
     
     elif current < recent_low * 1.02:
         if vol_ratio > 1.3:
-            return "🌊 คลื่น C ( Capitulation)", "accumulate", recent_low, recent_low * 0.95, "Volume หนุน จุดช้อน"
+            return "🌊 คลื่น C (จบรอบ)", "accumulate", recent_low, recent_low * 0.95, "Volume หนุน"
         else:
             return "🌊 คลื่น 2 (ย่อตัว)", "wait", recent_high, recent_low, "รอจังหวะ"
     
     else:
-        if current > prices[-5]:
-            return "🌊 คลื่น 4 (พักตัว)", "hold", recent_high, recent_low, " sideways"
-        else:
-            return "🌊 คลื่น 4 (พักตัว)", "hold", recent_high, recent_low, " sideways"
+        return "🌊 คลื่น 4 (พักตัว)", "hold", recent_high, recent_low, "sideways"
 
 
 # ============================================
-# ส่วนที่ 3: วิเคราะห์เจ้ามือ (Market Depth จำลอง)
+# ส่วนที่ 3: วิเคราะห์เจ้ามือ
 # ============================================
 
 class SmartEye:
-    """จำลอง Market Depth และวิเคราะห์วาฬ"""
+    """จำลอง Market Depth"""
     
     def get_depth(self, symbol, base_price):
         """สร้าง Market Depth จำลอง"""
         
-        # สุ่มสถานการณ์
         scenarios = [
             {"intent": "accumulate", "whale": "🐋 กำลังสะสม", "bias": 2},
             {"intent": "distribute", "whale": "🦈 กำลังกระจาย", "bias": -2},
@@ -199,27 +203,22 @@ class SmartEye:
         bids = []
         offers = []
         
-        # สร้าง Bids 10 ระดับ
         for i in range(10):
             bid_price = base_price * (1 - 0.002 * i)
-            # ถ้าสะสม จะมี Bid ใหญ่แทรก
             if scene["intent"] == "accumulate" and i == 2:
                 bid_vol = random.randint(300, 500) * 1000
             else:
                 bid_vol = random.randint(50, 150) * 1000
             bids.append({"price": round(bid_price, 2), "volume": bid_vol})
         
-        # สร้าง Offers 10 ระดับ
         for i in range(10):
             offer_price = base_price * (1 + 0.002 * i)
-            # ถ้ากระจาย จะมี Offer ใหญ่แทรก
             if scene["intent"] == "distribute" and i == 2:
                 offer_vol = random.randint(300, 500) * 1000
             else:
                 offer_vol = random.randint(50, 150) * 1000
             offers.append({"price": round(offer_price, 2), "volume": offer_vol})
         
-        # คำนวณ Whale Ratio
         total_bid = sum(b['volume'] for b in bids)
         total_offer = sum(o['volume'] for o in offers)
         
@@ -240,12 +239,12 @@ class SmartEye:
 
 
 # ============================================
-# ส่วนที่ 4: หน้าจอหลัก (ครบทุกอย่าง)
+# ส่วนที่ 4: หน้าจอหลัก
 # ============================================
 
 def show():
     st.markdown("# ⚡ เล่นสั้น - ระบบตาทิพย์")
-    st.markdown("### 📊 RSI | MACD | Stochastic | Elliott Wave | Volume | Depth")
+    st.markdown("### 📊 RSI | MACD | เส้นแกว่งตัว | Elliott | Volume | Depth")
     st.markdown("---")
     
     # เริ่มต้น clients
@@ -258,7 +257,7 @@ def show():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        popular = ["SCC", "PTT", "CPALL", "KCE", "PTTEP", "KBANK", "SCB"]
+        popular = ["SCC", "PTT", "ADVANC", "CPALL", "KCE"]
         symbol = st.selectbox("🔍 เลือกหุ้น", popular, index=0)
     
     with col2:
@@ -273,15 +272,15 @@ def show():
         
         with st.spinner(f"🦅 กำลังวิเคราะห์ {symbol}..."):
             
-            # 1. ดึงข้อมูลจาก Yahoo
-            price = st.session_state.yahoo.get_price(symbol)
-            hist = st.session_state.yahoo.get_historical(symbol, 60)
+            # ใช้ Cache
+            price = st.session_state.yahoo.get_price_cached(symbol)
+            hist = st.session_state.yahoo.get_historical_cached(symbol, 60)
             
             if not price or not hist:
                 st.error(f"❌ ไม่สามารถดึงข้อมูล {symbol} ได้")
                 st.stop()
             
-            # 2. คำนวณ Indicators
+            # คำนวณ Indicators
             rsi = calculate_rsi(hist['close'])
             ma5 = calculate_ma(hist['close'], 5)
             ma10 = calculate_ma(hist['close'], 10)
@@ -291,27 +290,23 @@ def show():
             macd, signal, hist_macd = calculate_macd(hist['close'])
             stoch_k, stoch_d = calculate_stochastic(hist['close'], hist['high'], hist['low'])
             
-            # 3. วิเคราะห์ Volume
+            # Volume
             vol_ratio = price['volume'] / price['avg_volume'] if price['avg_volume'] > 0 else 1
             if vol_ratio > 2:
                 vol_signal = "🔥 SPIKE แรง"
-                vol_desc = "มีรายใหญ่"
             elif vol_ratio > 1.5:
                 vol_signal = "📊 สูงกว่าปกติ"
-                vol_desc = "น่าสนใจ"
             elif vol_ratio < 0.5:
                 vol_signal = "😴 ต่ำ"
-                vol_desc = "เงียบ"
             else:
                 vol_signal = "⚖️ ปกติ"
-                vol_desc = "สมดุล"
             
-            # 4. Elliott Wave
+            # Elliott Wave
             wave_name, wave_signal, wave_target, wave_support, wave_desc = elliott_wave_analysis(
                 hist['close'], hist['volume']
             )
             
-            # 5. Market Depth จำลอง
+            # Market Depth
             depth = st.session_state.eye.get_depth(symbol, price['current'])
             
             # เก็บใน session
@@ -330,7 +325,6 @@ def show():
                 "stoch_d": stoch_d,
                 "vol_ratio": vol_ratio,
                 "vol_signal": vol_signal,
-                "vol_desc": vol_desc,
                 "wave_name": wave_name,
                 "wave_signal": wave_signal,
                 "wave_target": wave_target,
@@ -340,120 +334,122 @@ def show():
             })
     
     # ============================================
-    # แสดงผล (ครบทุกอย่าง)
+    # แสดงผล
     # ============================================
     if "price" in st.session_state:
         p = st.session_state.price
-        d = st.session_state.depth
         
-        # ---------- แถวที่ 1: ราคา + การเปลี่ยนแปลง ----------
+        # ---- แถวที่ 1: ราคา ----
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
             delta = f"{p['change']:+.2f} ({p['change_pct']:+.2f}%)"
             st.metric("💰 ราคาปัจจุบัน", f"{p['current']:.2f}", delta)
-        
         with col2:
             st.metric("📊 ราคาเปิด", f"{p['open']:.2f}")
-        
         with col3:
             st.metric("📈 สูงสุด", f"{p['high']:.2f}")
-        
         with col4:
             st.metric("📉 ต่ำสุด", f"{p['low']:.2f}")
         
-        # ---------- แถวที่ 2: Volume + RSI + MA ----------
+        # ---- แถวที่ 2: Volume + RSI + MA ----
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
             st.metric("📦 ปริมาณ", f"{p['volume']/1_000_000:.2f}M", 
-                     f"{st.session_state.vol_ratio:.2f}x", delta_color="off")
+                     f"{st.session_state.vol_ratio:.2f}x")
             st.caption(st.session_state.vol_signal)
-        
         with col2:
             rsi = st.session_state.rsi
             rsi_status = "🟢 Oversold" if rsi < 30 else "🔴 Overbought" if rsi > 70 else "⚪ Neutral"
-            st.metric("📊 RSI (14)", f"{rsi}", rsi_status)
-        
+            st.metric("📊 RSI", f"{rsi}", rsi_status)
         with col3:
             st.metric("📉 MA20", f"{st.session_state.ma20:.2f}")
-            st.caption(f"MA5: {st.session_state.ma5:.2f} | MA10: {st.session_state.ma10:.2f}")
-        
         with col4:
             st.metric("📈 MA50", f"{st.session_state.ma50:.2f}")
         
-        # ---------- แถวที่ 3: MACD + Stochastic ----------
+        # ---- แถวที่ 3: MACD + เส้นแกว่งตัว ----
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
             st.metric("📊 MACD", f"{st.session_state.macd:.2f}")
-        
         with col2:
             st.metric("📈 Signal", f"{st.session_state.signal:.2f}")
-        
         with col3:
             st.metric("📉 Histogram", f"{st.session_state.hist_macd:.2f}")
-        
         with col4:
-            st.metric("🎯 Stochastic", f"{st.session_state.stoch_k:.1f}")
+            k_val = st.session_state.stoch_k
+            status = "🟢 ต่ำ" if k_val < 20 else "🔴 สูง" if k_val > 80 else "⚪ ปกติ"
+            st.metric("🎯 เส้นเร็ว", f"{k_val:.1f}", status)
         
-        # ---------- แถวที่ 4: Market Depth + วิเคราะห์วาฬ ----------
+        # ---- แถวที่ 4: เส้นแกว่งตัว (รายละเอียด) ----
+        st.markdown("---")
+        st.subheader("📊 เส้นแกว่งตัว (Stochastic)")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            k_val = st.session_state.stoch_k
+            if k_val < 20:
+                st.success(f"**เส้นเร็ว:** {k_val:.1f} 🟢 ต่ำเกิน")
+            elif k_val > 80:
+                st.error(f"**เส้นเร็ว:** {k_val:.1f} 🔴 สูงเกิน")
+            else:
+                st.info(f"**เส้นเร็ว:** {k_val:.1f} ⚪ ปกติ")
+        
+        with col2:
+            d_val = st.session_state.stoch_d
+            if d_val < 20:
+                st.success(f"**เส้นช้า:** {d_val:.1f} 🟢 ต่ำเกิน")
+            elif d_val > 80:
+                st.error(f"**เส้นช้า:** {d_val:.1f} 🔴 สูงเกิน")
+            else:
+                st.info(f"**เส้นช้า:** {d_val:.1f} ⚪ ปกติ")
+        
+        with col3:
+            k_val = st.session_state.stoch_k
+            d_val = st.session_state.stoch_d
+            if k_val < 20 and d_val < 20:
+                st.success("🟢 **ซื้อ** (oversold)")
+            elif k_val > 80 and d_val > 80:
+                st.error("🔴 **ขาย** (overbought)")
+            else:
+                st.info("⚪ **รอดู**")
+        
+        # ---- แถวที่ 5: Market Depth ----
         st.markdown("---")
         st.subheader("🐋 Market Depth 10 ชั้น")
         
+        d = st.session_state.depth
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🟢 Bids (ฝั่งซื้อ)")
+            st.markdown("### 🟢 Bids")
             bids_df = pd.DataFrame(d['bids'][:7])
             bids_df.columns = ["ราคา", "จำนวน"]
             bids_df['จำนวน'] = (bids_df['จำนวน'] / 1000).astype(int).astype(str) + 'K'
             st.dataframe(bids_df, use_container_width=True, hide_index=True)
         
         with col2:
-            st.markdown("### 🔴 Offers (ฝั่งขาย)")
+            st.markdown("### 🔴 Offers")
             offers_df = pd.DataFrame(d['offers'][:7])
             offers_df.columns = ["ราคา", "จำนวน"]
             offers_df['จำนวน'] = (offers_df['จำนวน'] / 1000).astype(int).astype(str) + 'K'
             st.dataframe(offers_df, use_container_width=True, hide_index=True)
         
-        # แสดงสรุปวาฬ
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("🐋 วาฬฝั่งซื้อ", d['big_bids'])
-        with col2:
-            st.metric("🦈 วาฬฝั่งขาย", d['big_offers'])
-        with col3:
-            st.metric("⚖️ Whale Ratio", d['whale_ratio'])
-        
-        if d['whale_ratio'] > 1:
-            st.success(f"**{d['whale_desc']}** - วาฬกำลังซื้อ")
-        elif d['whale_ratio'] < -1:
-            st.error(f"**{d['whale_desc']}** - วาฬกำลังขาย")
-        else:
-            st.info(f"**{d['whale_desc']}**")
-        
-        # ---------- แถวที่ 5: Elliott Wave ----------
+        # ---- แถวที่ 6: Elliott Wave ----
         st.markdown("---")
-        st.subheader("🌊 Elliott Wave Analysis")
+        st.subheader("🌊 Elliott Wave")
         
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown(f"**{st.session_state.wave_name}**")
             st.caption(st.session_state.wave_desc)
-        
         with col2:
             st.markdown(f"🎯 **เป้าหมาย:** {st.session_state.wave_target:.2f}")
             st.markdown(f"🛡️ **แนวรับ:** {st.session_state.wave_support:.2f}")
         
-        # ---------- แถวที่ 6: กราฟแท่งเทียน ----------
+        # ---- แถวที่ 7: กราฟ ----
         st.markdown("---")
         st.subheader("📈 กราฟราคา 45 วัน")
         
         fig = go.Figure()
-        
-        # กราฟแท่งเทียน
         fig.add_trace(go.Candlestick(
             x=st.session_state.hist['dates'][-45:],
             open=st.session_state.hist['open'][-45:],
@@ -464,10 +460,8 @@ def show():
             showlegend=False
         ))
         
-        # เส้น MA
         closes = st.session_state.hist['close'][-45:]
         ma20_vals = pd.Series(closes).rolling(20).mean()
-        ma50_vals = pd.Series(closes).rolling(50).mean() if len(closes) >= 50 else None
         
         fig.add_trace(go.Scatter(
             x=st.session_state.hist['dates'][-45:], y=ma20_vals,
@@ -475,145 +469,26 @@ def show():
             line=dict(color='orange', width=1.5)
         ))
         
-        if ma50_vals is not None:
-            fig.add_trace(go.Scatter(
-                x=st.session_state.hist['dates'][-45:], y=ma50_vals,
-                mode='lines', name='MA50',
-                line=dict(color='red', width=1.5)
-            ))
-        
-        fig.update_layout(
-            height=400,
-            xaxis_rangeslider_visible=False,
-            template="plotly_white"
-        )
-        
+        fig.update_layout(height=400, xaxis_rangeslider_visible=False, template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
         
-        # ---------- แถวที่ 7: กราฟ Volume ----------
-        st.subheader("📊 ปริมาณซื้อขาย")
-        
-        fig_vol = go.Figure()
-        
-        volumes = st.session_state.hist['volume'][-45:]
-        colors = ['green' if v > st.session_state.price['avg_volume'] else 'red' for v in volumes]
-        
-        fig_vol.add_trace(go.Bar(
-            x=st.session_state.hist['dates'][-45:],
-            y=volumes,
-            name='Volume',
-            marker_color=colors
-        ))
-        
-        fig_vol.add_hline(
-            y=st.session_state.price['avg_volume'],
-            line_dash="dash",
-            line_color="orange",
-            annotation_text=f"เฉลี่ย {st.session_state.price['avg_volume']/1_000_000:.1f}M"
-        )
-        
-        fig_vol.update_layout(
-            height=200,
-            template="plotly_white"
-        )
-        
-        st.plotly_chart(fig_vol, use_container_width=True)
-        
-        # ---------- แถวที่ 8: จุดซื้อ-ขาย ----------
+        # ---- แถวที่ 8: จุดซื้อ-ขาย ----
         st.markdown("---")
-        st.subheader("🎯 จุดซื้อ-ขาย แนะนำ")
+        st.subheader("🎯 จุดซื้อ-ขาย")
         
-        # คำนวณแนวรับ-แนวต้าน
         recent = st.session_state.hist['close'][-10:]
         support = min(recent) * 0.98
         resistance = max(recent) * 1.02
-        strong_support = min(st.session_state.hist['close'][-20:]) * 0.95
         
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("### 🟢 จุดซื้อ")
-            st.markdown(f"**โซนซื้อ:** {support:.2f} - {p['current']:.2f}")
+            st.markdown(f"**โซน:** {support:.2f} - {p['current']:.2f}")
             st.markdown(f"**จุดช้อน:** {support:.2f}")
-            st.markdown(f"**RSI:** {st.session_state.rsi}")
-            st.markdown(f"**Elliott:** {st.session_state.wave_signal}")
-        
         with col2:
-            st.markdown("### 🔴 จุดขาย / Cut loss")
+            st.markdown("### 🔴 จุดขาย")
             st.markdown(f"**TP1:** {p['current']*1.02:.2f} (+2%)")
             st.markdown(f"**TP2:** {p['current']*1.05:.2f} (+5%)")
-            st.markdown(f"**Cut loss:** {p['current']*0.97:.2f} (-3%)")
-            st.markdown(f"**แนวต้าน:** {resistance:.2f}")
-            st.markdown(f"**แนวรับแข็ง:** {strong_support:.2f}")
+            st.markdown(f"**Cut:** {p['current']*0.97:.2f} (-3%)")
         
-        # ---------- แถวที่ 9: สรุปคะแนน ----------
-        st.markdown("---")
-        st.subheader("💡 สรุปสัญญาณ")
-        
-        buy_signals = 0
-        sell_signals = 0
-        
-        # RSI
-        if st.session_state.rsi < 30:
-            buy_signals += 2
-        elif st.session_state.rsi > 70:
-            sell_signals += 2
-        
-        # Volume
-        if st.session_state.vol_ratio > 1.5 and p['change'] > 0:
-            buy_signals += 1
-        if st.session_state.vol_ratio > 1.5 and p['change'] < 0:
-            sell_signals += 1
-        
-        # MACD
-        if st.session_state.macd > st.session_state.signal:
-            buy_signals += 1
-        else:
-            sell_signals += 1
-        
-        # Stochastic
-        if st.session_state.stoch_k < 20:
-            buy_signals += 1
-        elif st.session_state.stoch_k > 80:
-            sell_signals += 1
-        
-        # Whale
-        if st.session_state.depth['whale_ratio'] > 1:
-            buy_signals += 2
-        elif st.session_state.depth['whale_ratio'] < -1:
-            sell_signals += 2
-        
-        # Elliott
-        if st.session_state.wave_signal == "buy":
-            buy_signals += 3
-        elif st.session_state.wave_signal == "sell":
-            sell_signals += 3
-        elif st.session_state.wave_signal == "accumulate":
-            buy_signals += 1
-        
-        total_signals = buy_signals + sell_signals
-        if total_signals == 0:
-            total_signals = 1
-        
-        buy_pct = (buy_signals / total_signals) * 100
-        sell_pct = (sell_signals / total_signals) * 100
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown(f"### 🟢 ซื้อ: {buy_signals} จุด")
-            st.progress(buy_pct/100, text=f"{buy_pct:.0f}%")
-        
-        with col2:
-            st.markdown(f"### 🔴 ขาย: {sell_signals} จุด")
-            st.progress(sell_pct/100, text=f"{sell_pct:.0f}%")
-        
-        if buy_signals > sell_signals + 2:
-            st.success("✅ **แนะนำ: ซื้อ** (สัญญาณซื้อมากกว่า)")
-        elif sell_signals > buy_signals + 2:
-            st.error("❌ **แนะนำ: ขาย / รอ** (สัญญาณขายมากกว่า)")
-        else:
-            st.info("⚖️ **แนะนำ: รอดู** (สัญญาณใกล้เคียงกัน)")
-        
-        # เวลาอัปเดท
-        st.caption(f"⏱️ อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
+        st.caption(f"⏱️ อัปเดต: {datetime.now().strftime('%H:%M:%S')}")
