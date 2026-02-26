@@ -15,43 +15,40 @@ import requests
 # ============================================
 
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
 def get_eod_price(symbol):
-    # 🔴 เพิ่ม debug
-    st.write("🔍 **DEBUG MODE**")
+    """ดึงราคาปิดล่าสุด - ปรับปรุง parameter"""
+    
+    # ลองหลายๆ แบบ
+    param_variants = [
+        {"symbol": symbol},                          # แบบเดิม
+        {"symbolCode": symbol},                      # แบบ symbolCode
+        {"symbol": symbol, "market": "SET"},         # เพิ่ม market
+        {"symbolCode": symbol, "market": "SET"},     # รวมกัน
+        {"secCode": symbol},                          # บางที่ใช้ secCode
+    ]
     
     for days_back in [1, 2, 3]:
         test_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         
-        try:
-            api_key = st.secrets["SETSMART_API_KEY"]
-            url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
-            params = {
-                "symbol": symbol,
-                "startDate": test_date,
-                "adjustedPriceFlag": "Y"
-            }
-            headers = {"x-api-key": api_key}
+        for params_template in param_variants:
+            params = params_template.copy()
+            params["startDate"] = test_date
+            params["adjustedPriceFlag"] = "Y"
             
-            # 🔴 แสดง URL และ Parameter
-            st.write(f"📡 Calling: {url}")
-            st.write(f"📦 Params: {params}")
-            st.write(f"🔑 API Key: {api_key[:5]}...{api_key[-5:]}")
-            
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            
-            st.write(f"📡 Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                st.write(f"✅ Response: {data}")
-                if data and len(data) > 0:
-                    return data[0]
-            else:
-                st.write(f"❌ Response: {response.text}")
+            try:
+                api_key = st.secrets["SETSMART_API_KEY"]
+                url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
+                headers = {"x-api-key": api_key}
                 
-        except Exception as e:
-            st.write(f"❌ Exception: {e}")
+                response = requests.get(url, headers=headers, params=params, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and len(data) > 0:
+                        return data[0]
+                        
+            except:
+                continue
     
     return None
 
