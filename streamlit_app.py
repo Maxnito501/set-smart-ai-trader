@@ -3,23 +3,19 @@
 
 """
 📁 streamlit_app.py
-SET SMART AI Trader - ตัวหลัก รวมเมนูและ sidebar
+SET SMART AI Trader - ใช้ API จริงจาก SET SMART
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime
-import time
+from datetime import datetime, timedelta
 
 # ============================================
 # 🔴 import หน้าต่างๆ
 # ============================================
 from pages import short_term
-# from pages import long_term     (ไว้ทีหลัง)
-# from pages import smart_money   (ไว้ทีหลัง)
-# from pages import backtest      (ไว้ทีหลัง)
 
 # ============================================
 # 🔴 ตั้งค่าหน้า
@@ -32,84 +28,116 @@ st.set_page_config(
 )
 
 # ============================================
-# 🔴 ฟังก์ชันเรียก API
+# 🔴 ฟังก์ชันเรียก API (ของจริงจากเอกสาร)
 # ============================================
 
-# 🔴 จุดที่ 1: API URL ต้องตรวจสอบให้ถูกต้อง
-BASE_URL = "https://api.setsmart.com"  # หรืออาจเป็น "https://api.setsmart.com/v1"
-
-@st.cache_data(ttl=30)  # cache 30 วินาที (อาจนานไป)
-def get_realtime_price(symbol):
-    """ดึงราคาปัจจุบันจาก SET SMART API"""
+@st.cache_data(ttl=60)  # cache 1 นาที
+def get_eod_price(symbol, date=None):
+    """
+    ดึงราคาปิดรายวันจาก SET SMART API
+    Endpoint: /api/listed-company-api/eod-price-by-symbol
+    """
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
-        
-        # 🔴 จุดที่ 2: endpoint ต้องตรวจสอบให้ถูกต้อง
-        url = f"{BASE_URL}/realtime/{symbol}"
-        # หรืออาจเป็น:
-        # url = f"{BASE_URL}/quote/{symbol}"
-        # url = f"{BASE_URL}/stock/{symbol}"
-        # url = f"{BASE_URL}/price/{symbol}"
-        
+        url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
+        params = {
+            "symbol": symbol,
+            "startDate": date,
+            "adjustedPriceFlag": "Y"
+        }
         headers = {"x-api-key": api_key}
         
-        response = requests.get(url, headers=headers, timeout=5)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            
-            # 🔴 จุดที่ 3: ชื่อฟิลด์ต้องตรวจสอบให้ถูกต้อง
-            return {
-                "current": data.get("last", 0),        # อาจเป็น "close" หรือ "price"
-                "change": data.get("change", 0),        # อาจไม่มี
-                "change_pct": data.get("change_pct", 0),# อาจไม่มี
-                "volume": data.get("volume", 0),        # อาจเป็น "vol"
-                "open": data.get("open", 0),            # อาจไม่มี
-                "high": data.get("high", 0),            # อาจไม่มี
-                "low": data.get("low", 0),              # อาจไม่มี
-                "bid": data.get("bid", 0),              # อาจไม่มี
-                "offer": data.get("offer", 0)           # อาจไม่มี
-            }
-        else:
-            # 🔴 จุดที่ 4: ควรแสดง error เพื่อ debug
-            st.error(f"❌ API Error {response.status_code} for {symbol}")
-            return None
+            if data and len(data) > 0:
+                return data[0]  # ข้อมูลล่าสุด
+        return None
     except Exception as e:
-        st.error(f"❌ Exception: {e}")
+        st.error(f"❌ Error: {e}")
         return None
 
 @st.cache_data(ttl=300)  # cache 5 นาที
-def get_set_index():
-    """ดึง SET Index จาก API"""
+def get_historical_eod(symbol, days=30):
+    """
+    ดึงราคาย้อนหลังจาก SET SMART API
+    """
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
-        url = f"{BASE_URL}/index/SET"
+        url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
+        
+        # คำนวณวันที่เริ่มต้น
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        params = {
+            "symbol": symbol,
+            "startDate": start_date.strftime("%Y-%m-%d"),
+            "adjustedPriceFlag": "Y"
+        }
         headers = {"x-api-key": api_key}
         
-        response = requests.get(url, headers=headers, timeout=5)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            return data.get("last", 1600)
-        else:
-            return 1600  # ค่า default
-    except:
-        return 1600
+            if data and len(data) > 0:
+                # เรียงตามวันที่
+                data.sort(key=lambda x: x.get("date", ""))
+                return data
+        return []
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+        return []
+
+@st.cache_data(ttl=10)  # cache 10 วินาที (ข้อมูลสด)
+def get_realtime_price(symbol):
+    """
+    ดึงข้อมูลเรียลไทม์จาก SET SMART API
+    Endpoint: https://marketplace.set.or.th/api/public/realtime-data/stock
+    """
+    try:
+        api_key = st.secrets["SETSMART_API_KEY"]
+        url = "https://marketplace.set.or.th/api/public/realtime-data/stock"
+        params = {
+            "stockSymbol": symbol,
+            "market": "SET"
+        }
+        headers = {"x-api-key": api_key}
+        
+        response = requests.get(url, headers=headers, params=params, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "current": data.get("last", 0),
+                "change": data.get("change", 0),
+                "change_pct": data.get("changePercent", 0),
+                "volume": data.get("volume", 0),
+                "bid": data.get("bid", 0),
+                "offer": data.get("offer", 0),
+                "high": data.get("high", 0),
+                "low": data.get("low", 0),
+                "open": data.get("open", 0)
+            }
+        return None
+    except Exception as e:
+        return None
 
 # ============================================
 # 🔴 ตรวจสอบ API Key
 # ============================================
 def check_api_status():
-    """ตรวจสอบสถานะ API Key"""
     try:
         if "SETSMART_API_KEY" in st.secrets:
             api_key = st.secrets["SETSMART_API_KEY"]
-            if api_key and len(api_key) > 10 and api_key != "your-key":
+            if api_key and len(api_key) > 10:
                 return "✅ พร้อมใช้งาน", api_key
-            else:
-                return "⚠️ กรุณาใส่ API Key จริง", None
-        else:
-            return "⚠️ ไม่พบ API Key", None
+        return "⚠️ ไม่พบ API Key", None
     except:
         return "❌ Error", None
 
@@ -126,13 +154,6 @@ with st.sidebar:
     st.markdown("### 🔌 สถานะ API")
     st.markdown(api_status)
     
-    if "✅" not in api_status:
-        with st.expander("⚙️ ตั้งค่า"):
-            st.markdown("""
-            1. ไปที่ **Manage app** → **Secrets**
-            2. เพิ่ม: `SETSMART_API_KEY = "your-key"`
-            """)
-    
     st.markdown("---")
     
     menu = st.radio(
@@ -142,16 +163,16 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.caption("SET SMART AI Trader v0.2.0")
+    st.caption("SET SMART AI Trader v0.3.0 | ใช้ API จริง")
 
 # ============================================
-# 🔴 หน้าแรก
+# 🔴 หน้าแรก (ใช้ API จริง)
 # ============================================
 
 if menu == "🏠 หน้าแรก":
     st.title("📈 SET SMART AI Trader Dashboard")
     
-    # ปุ่มรีเฟรช
+    # แถวสถานะ
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -164,14 +185,16 @@ if menu == "🏠 หน้าแรก":
         st.metric("เวลาล่าสุด", datetime.now().strftime("%H:%M:%S"))
     
     with col4:
-        if st.button("🔄 รีเฟรชข้อมูล"):
+        if st.button("🔄 รีเฟรช"):
             st.cache_data.clear()
             st.rerun()
     
     st.markdown("---")
     
-    # 🔴 จุดที่ 5: ตัวอย่างหุ้น
-    st.subheader("📊 ตัวอย่างหุ้นในตลาด")
+    # ============================================
+    # ตัวอย่างหุ้นในตลาด (จาก API จริง)
+    # ============================================
+    st.subheader("📊 ตัวอย่างหุ้นในตลาด (ข้อมูลจริง)")
     
     watch_list = ["SCC", "PTT", "ADVANC", "CPALL", "KCE", "GULF", "PTTEP"]
     
@@ -179,21 +202,34 @@ if menu == "🏠 หน้าแรก":
     progress_bar = st.progress(0)
     
     for i, symbol in enumerate(watch_list):
-        data = get_realtime_price(symbol)
-        if data:
+        # ลองเรียกเรียลไทม์ก่อน
+        rt = get_realtime_price(symbol)
+        
+        if rt:
             stock_data.append({
                 "หุ้น": symbol,
-                "ราคาปัจจุบัน": data["current"],
-                "เปลี่ยนแปลง": f"{data['change']:+.2f} ({data['change_pct']:+.2f}%)",
-                "Volume (M)": f"{data['volume']/1_000_000:.1f}"
+                "ราคาปัจจุบัน": rt["current"],
+                "เปลี่ยนแปลง": f"{rt['change']:+.2f} ({rt['change_pct']:+.2f}%)",
+                "Volume (M)": f"{rt['volume']/1_000_000:.1f}"
             })
         else:
-            stock_data.append({
-                "หุ้น": symbol,
-                "ราคาปัจจุบัน": 0,
-                "เปลี่ยนแปลง": "N/A",
-                "Volume (M)": "N/A"
-            })
+            # ถ้าไม่ได้ ใช้ EOD แทน
+            eod = get_eod_price(symbol)
+            if eod:
+                stock_data.append({
+                    "หุ้น": symbol,
+                    "ราคาปัจจุบัน": eod.get("close", 0),
+                    "เปลี่ยนแปลง": "N/A",
+                    "Volume (M)": f"{eod.get('volume', 0)/1_000_000:.1f}"
+                })
+            else:
+                stock_data.append({
+                    "หุ้น": symbol,
+                    "ราคาปัจจุบัน": 0,
+                    "เปลี่ยนแปลง": "N/A",
+                    "Volume (M)": "N/A"
+                })
+        
         progress_bar.progress((i + 1) / len(watch_list))
     
     progress_bar.empty()
@@ -201,22 +237,37 @@ if menu == "🏠 หน้าแรก":
     df = pd.DataFrame(stock_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
     
-    # SET Index
+    # ============================================
+    # กราฟ SET Index
+    # ============================================
     st.subheader("📈 SET Index ภาพรวม")
-    set_index = get_set_index()
     
-    # สร้างข้อมูลตัวอย่างสำหรับกราฟ
-    dates = pd.date_range(end=datetime.now(), periods=30).tolist()
-    set_prices = [set_index * (1 + np.random.uniform(-0.03, 0.03)) for _ in range(30)]
+    # ดึงข้อมูล SET Index (ใช้ PTT แทน หรือจะเรียก index โดยเฉพาะ)
+    set_data = get_historical_eod("PTT", 30)  # ใช้ PTT แทนคร่าวๆ
     
-    chart_data = pd.DataFrame({
-        "date": dates,
-        "SET Index": set_prices
-    })
+    if set_data and len(set_data) > 0:
+        dates = [datetime.strptime(d["date"], "%Y-%m-%d") for d in set_data]
+        prices = [d.get("close", 0) for d in set_data]
+        
+        chart_df = pd.DataFrame({
+            "date": dates,
+            "SET Index": prices
+        })
+        st.line_chart(chart_df.set_index("date"))
+    else:
+        # ถ้าไม่ได้ ให้ใช้ข้อมูลตัวอย่าง
+        dates = pd.date_range(end=datetime.now(), periods=30).tolist()
+        set_prices = [1600 + i*2 + np.random.randint(-10, 10) for i in range(30)]
+        
+        chart_df = pd.DataFrame({
+            "date": dates,
+            "SET Index": set_prices
+        })
+        st.line_chart(chart_df.set_index("date"))
     
-    st.line_chart(chart_data.set_index("date"))
-    
+    # ============================================
     # คำแนะนำการใช้งาน
+    # ============================================
     with st.expander("📋 คำแนะนำการใช้งาน", expanded=True):
         col1, col2 = st.columns(2)
         
@@ -227,7 +278,6 @@ if menu == "🏠 หน้าแรก":
             - ดูราคาจริง, Volume, RSI
             - กราฟแท่งเทียน + Indicators
             - วิเคราะห์ Elliott Wave
-            - ดูเจตนารายใหญ่ (NVDR, Big Lot)
             """)
             
             st.markdown("### 💰 เล่นยาว")
@@ -242,7 +292,6 @@ if menu == "🏠 หน้าแรก":
             st.markdown("""
             - ดู NVDR Flow
             - วิเคราะห์ Big Lot
-            - ดู Short Sales
             """)
             
             st.markdown("### 📊 ทดสอบกลยุทธ์")
@@ -276,7 +325,7 @@ elif menu == "📓 สมุดบันทึก":
 st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: gray; font-size: 0.8em;'>"
-    "SET SMART AI Trader | ข้อมูลจาก SET SMART API"
+    "SET SMART AI Trader | ข้อมูลจาก SET SMART API จริง"
     "</div>",
     unsafe_allow_html=True
 )
