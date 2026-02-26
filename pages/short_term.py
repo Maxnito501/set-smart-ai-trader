@@ -23,13 +23,15 @@ class YahooClient:
         self.cache = {}
     
     def get_price(self, symbol):
-        """ดึงราคาปัจจุบัน"""
-        try:
-            ticker = yf.Ticker(f"{symbol}.BK")
-            hist = ticker.history(period="5d")
-            
-            if hist.empty:
-                return None
+    try:
+        print(f"🔍 กำลังเรียก {symbol}...")
+        ticker = yf.Ticker(f"{symbol}.BK")
+        hist = ticker.history(period="5d")
+        print(f"✅ ได้ข้อมูล {symbol}")
+        # ... ที่เหลือ
+    except Exception as e:
+        print(f"❌ Error {symbol}: {e}")
+        return None
             
             current = hist['Close'].iloc[-1]
             prev = hist['Close'].iloc[-2]
