@@ -258,7 +258,7 @@ def show():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        popular = ["SCC", "PTT", "ADVANC", "CPALL", "KCE", "GULF", "PTTEP", "BBL", "KBANK", "SCB"]
+        popular = ["SCC", "PTT", "CPALL", "KCE", "PTTEP", "KBANK", "SCB"]
         symbol = st.selectbox("🔍 เลือกหุ้น", popular, index=0)
     
     with col2:
