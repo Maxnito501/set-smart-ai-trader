@@ -16,39 +16,35 @@ import requests
 
 @st.cache_data(ttl=60)
 def get_eod_price(symbol):
-    """ดึงราคาปิดล่าสุด - ปรับปรุง parameter"""
-    
-    # ลองหลายๆ แบบ
-    param_variants = [
-        {"symbol": symbol},                          # แบบเดิม
-        {"symbolCode": symbol},                      # แบบ symbolCode
-        {"symbol": symbol, "market": "SET"},         # เพิ่ม market
-        {"symbolCode": symbol, "market": "SET"},     # รวมกัน
-        {"secCode": symbol},                          # บางที่ใช้ secCode
-    ]
+    """ลองใช้ POST แทน GET"""
     
     for days_back in [1, 2, 3]:
         test_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         
-        for params_template in param_variants:
-            params = params_template.copy()
-            params["startDate"] = test_date
-            params["adjustedPriceFlag"] = "Y"
+        try:
+            api_key = st.secrets["SETSMART_API_KEY"]
+            url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
             
-            try:
-                api_key = st.secrets["SETSMART_API_KEY"]
-                url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
-                headers = {"x-api-key": api_key}
-                
-                response = requests.get(url, headers=headers, params=params, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data and len(data) > 0:
-                        return data[0]
-                        
-            except:
-                continue
+            # ใช้ POST ส่ง JSON body
+            payload = {
+                "symbol": symbol,
+                "startDate": test_date,
+                "adjustedPriceFlag": "Y"
+            }
+            headers = {
+                "x-api-key": api_key,
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data and len(data) > 0:
+                    return data[0]
+                    
+        except:
+            continue
     
     return None
 
