@@ -1,6 +1,6 @@
 """
 📁 pages/short_term.py
-หน้าเล่นสั้น - ใช้ API จริงจาก SET SMART
+หน้าเล่นสั้น - ปรับปรุงการเรียก API
 """
 
 import streamlit as st
@@ -11,34 +11,36 @@ from datetime import datetime, timedelta
 import requests
 
 # ============================================
-# ส่วนที่ 1: เรียก API (ของจริงจากเอกสาร)
+# ส่วนที่ 1: เรียก API (ปรับปรุง)
 # ============================================
 
 @st.cache_data(ttl=60)
-def get_eod_price(symbol, date=None):
-    """ดึงราคาปิดรายวัน"""
-    if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
+def get_eod_price(symbol):
+    """ดึงราคาปิดล่าสุด - ใช้วันก่อนหน้าอัตโนมัติ"""
+    # ลอง 3 วันย้อนหลัง
+    for days_back in [1, 2, 3]:
+        test_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        
+        try:
+            api_key = st.secrets["SETSMART_API_KEY"]
+            url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
+            params = {
+                "symbol": symbol,
+                "startDate": test_date,
+                "adjustedPriceFlag": "Y"
+            }
+            headers = {"x-api-key": api_key}
+            
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data and len(data) > 0:
+                    return data[0]  # เจอแล้ว
+        except:
+            continue
     
-    try:
-        api_key = st.secrets["SETSMART_API_KEY"]
-        url = "https://www.setsmart.com/api/listed-company-api/eod-price-by-symbol"
-        params = {
-            "symbol": symbol,
-            "startDate": date,
-            "adjustedPriceFlag": "Y"
-        }
-        headers = {"x-api-key": api_key}
-        
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data and len(data) > 0:
-                return data[0]
-        return None
-    except:
-        return None
+    return None  # ไม่เจอเลย
 
 @st.cache_data(ttl=300)
 def get_historical_eod(symbol, days=45):
@@ -69,7 +71,7 @@ def get_historical_eod(symbol, days=45):
         return []
 
 # ============================================
-# ส่วนที่ 2: คำนวณตัวเลขทางเทคนิค
+# ส่วนที่ 2: คำนวณตัวเลขทางเทคนิค (เหมือนเดิม)
 # ============================================
 
 def calculate_rsi(prices, period=14):
@@ -144,16 +146,17 @@ def show():
         
         with st.spinner(f"⚡ กำลังดึงข้อมูล {selected}..."):
             
-            # 1. ดึง EOD ล่าสุด (ใช้เป็นราคาปัจจุบัน)
+            # 1. ดึง EOD ล่าสุด
             eod = get_eod_price(selected)
             
             if eod is None:
-                st.warning(f"⚠️ ไม่พบข้อมูล {selected} ใช้ข้อมูลตัวอย่าง")
-                # ใช้ข้อมูลตัวอย่าง
+                st.warning(f"⚠️ ไม่พบข้อมูล {selected} จาก API ใช้ข้อมูลตัวอย่าง")
+                # ข้อมูลตัวอย่าง
                 current_price = 100.0
                 volume = 5_000_000
-                change = 0.5
-                change_pct = 0.5
+                prev_close = 99.5
+                change = current_price - prev_close
+                change_pct = (change / prev_close * 100)
                 open_price = 99.5
                 high = 101.0
                 low = 99.0
