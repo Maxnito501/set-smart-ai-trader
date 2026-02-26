@@ -1,6 +1,6 @@
 """
 📁 pages/short_term.py
-หน้าเล่นสั้น - ดึงข้อมูลจาก SET SMART API จริง (มีครบ: กราฟ RSI Elliott Wave จุดซื้อขาย)
+หน้าเล่นสั้น - ดึงข้อมูลจาก SET SMART API จริง 100%
 """
 
 import streamlit as st
@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 import requests
 
 # ============================================
-# ส่วนที่ 1: เรียก API (ของจริง)
+# ส่วนที่ 1: เรียก API (ของจริงเท่านั้น!)
 # ============================================
 
 @st.cache_data(ttl=10)
 def get_realtime_price(symbol):
-    """ดึงราคาปัจจุบันจาก SET SMART API"""
+    """ดึงราคาปัจจุบันจาก SET SMART API จริง"""
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
         url = f"https://api.setsmart.com/realtime/{symbol}"
@@ -39,15 +39,13 @@ def get_realtime_price(symbol):
                 "prev_close": data.get("prev_close", 0)
             }
         else:
-            st.error(f"❌ API Error {response.status_code}")
             return None
-    except Exception as e:
-        st.error(f"❌ ไม่สามารถเชื่อมต่อ API: {e}")
+    except:
         return None
 
 @st.cache_data(ttl=60)
 def get_historical_prices(symbol, days=45):
-    """ดึงราคาย้อนหลังจาก SET SMART API"""
+    """ดึงราคาย้อนหลังจาก SET SMART API จริง"""
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
         url = f"https://api.setsmart.com/historical/{symbol}"
@@ -70,12 +68,11 @@ def get_historical_prices(symbol, days=45):
                 
                 return dates, closes, opens, highs, lows, volumes
         return None, None, None, None, None, None
-    except Exception as e:
-        st.error(f"❌ ไม่สามารถดึงข้อมูลย้อนหลัง: {e}")
+    except:
         return None, None, None, None, None, None
 
 # ============================================
-# ส่วนที่ 2: คำนวณตัวเลขทางเทคนิค (เหมือนเดิม)
+# ส่วนที่ 2: คำนวณตัวเลขทางเทคนิค
 # ============================================
 
 def calculate_rsi(prices, period=14):
@@ -126,7 +123,7 @@ def elliott_wave(prices):
         return "🌊 คลื่น 4 (พักตัว)", "hold", recent_high
 
 # ============================================
-# ส่วนที่ 3: หน้าจอหลัก (มีครบทุกอย่าง)
+# ส่วนที่ 3: หน้าจอหลัก (ใช้ API จริงเท่านั้น)
 # ============================================
 
 def show():
@@ -146,40 +143,44 @@ def show():
         refresh = st.button("🔄 รีเฟรช", use_container_width=True)
     
     # ============================================
-    # ดึงข้อมูล
+    # ดึงข้อมูลจาก API เท่านั้น!
     # ============================================
     if refresh or "last_symbol" not in st.session_state or st.session_state["last_symbol"] != selected:
         
         st.session_state["last_symbol"] = selected
         
-        with st.spinner(f"⚡ กำลังดึงข้อมูล {selected}..."):
+        with st.spinner(f"⚡ กำลังดึงข้อมูล {selected} จาก API..."):
             
-            # 1. ราคาปัจจุบัน
+            # 1. ดึงราคาปัจจุบัน
             rt = get_realtime_price(selected)
             
-            if not rt:
-                st.error(f"❌ ไม่มีข้อมูล {selected}")
+            if rt is None:
+                st.error(f"❌ ไม่สามารถดึงข้อมูล {selected} ได้")
                 st.stop()
             
-            # 2. ข้อมูลย้อนหลัง
+            # 2. ดึงข้อมูลย้อนหลัง
             dates, closes, opens, highs, lows, volumes = get_historical_prices(selected, 45)
             
-            if not dates:
-                st.error(f"❌ ไม่มีข้อมูลย้อนหลัง {selected}")
+            if dates is None:
+                st.error(f"❌ ไม่สามารถดึงข้อมูลย้อนหลังของ {selected} ได้")
                 st.stop()
             
-            # 3. คำนวณค่า
+            # 3. คำนวณค่าทางเทคนิค
             rsi = calculate_rsi(closes)
             ma5 = calculate_ma(closes, 5)
             ma10 = calculate_ma(closes, 10)
             ma20 = calculate_ma(closes, 20)
             wave, wave_signal, wave_target = elliott_wave(closes)
             
-            # 4. ค่าเฉลี่ย Volume
-            avg_vol = sum(volumes[-21:-1]) / 20 if len(volumes) > 20 else rt["volume"]
+            # 4. คำนวณ Volume เฉลี่ย
+            if len(volumes) > 20:
+                avg_vol = sum(volumes[-21:-1]) / 20
+            else:
+                avg_vol = rt["volume"]
+            
             vol_ratio = rt["volume"] / avg_vol if avg_vol > 0 else 1
             
-            # 5. เก็บไว้ใน session
+            # 5. เก็บข้อมูลทั้งหมดใน session_state
             st.session_state.update({
                 "rt": rt,
                 "dates": dates,
@@ -195,12 +196,12 @@ def show():
                 "wave": wave,
                 "wave_signal": wave_signal,
                 "wave_target": wave_target,
-                "vol_ratio": vol_ratio,
-                "avg_vol": avg_vol
+                "avg_vol": avg_vol,
+                "vol_ratio": vol_ratio
             })
     
     # ============================================
-    # แสดงผล
+    # แสดงผล (ใช้ข้อมูลจาก session_state เท่านั้น)
     # ============================================
     if "rt" in st.session_state:
         rt = st.session_state["rt"]
@@ -228,14 +229,14 @@ def show():
             st.metric("📦 ปริมาณ", f"{rt['volume']/1_000_000:.2f}M", f"{st.session_state['vol_ratio']:.2f}x")
         
         with col2:
-            rsi = st.session_state["rsi"]
-            status = "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral"
-            st.metric("📊 RSI (14)", f"{rsi}", status)
+            rsi_val = st.session_state["rsi"]
+            status = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else "neutral"
+            st.metric("📊 RSI (14)", f"{rsi_val}", status)
         
         with col3:
-            ma20 = st.session_state["ma20"]
-            status = "above" if rt["current"] > ma20 else "below"
-            st.metric("📉 MA20", f"{ma20:.2f}", status)
+            ma20_val = st.session_state["ma20"]
+            status = "above" if rt["current"] > ma20_val else "below"
+            st.metric("📉 MA20", f"{ma20_val:.2f}", status)
         
         with col4:
             st.metric("📈 Bid/Offer", f"{rt['bid']:.2f} / {rt['offer']:.2f}")
@@ -256,7 +257,7 @@ def show():
         
         # ---------- แถวที่ 4: กราฟแท่งเทียน ----------
         st.markdown("---")
-        st.subheader("📈 กราฟแท่งเทียน + MA")
+        st.subheader("📈 กราฟแท่งเทียน (ข้อมูลจาก API)")
         
         fig = go.Figure()
         
@@ -269,15 +270,16 @@ def show():
             name="ราคา"
         ))
         
+        # MA5
         ma5_vals = pd.Series(st.session_state["closes"][-30:]).rolling(5).mean()
-        ma20_vals = pd.Series(st.session_state["closes"][-30:]).rolling(20).mean()
-        
         fig.add_trace(go.Scatter(
             x=st.session_state["dates"][-30:], y=ma5_vals,
             mode='lines', name='MA5',
             line=dict(color='orange', width=1.5)
         ))
         
+        # MA20
+        ma20_vals = pd.Series(st.session_state["closes"][-30:]).rolling(20).mean()
         fig.add_trace(go.Scatter(
             x=st.session_state["dates"][-30:], y=ma20_vals,
             mode='lines', name='MA20',
@@ -293,7 +295,7 @@ def show():
         st.plotly_chart(fig, use_container_width=True)
         
         # ---------- แถวที่ 5: กราฟ Volume ----------
-        st.subheader("📊 ปริมาณซื้อขาย")
+        st.subheader("📊 ปริมาณซื้อขาย (ข้อมูลจาก API)")
         
         fig_vol = go.Figure()
         
@@ -322,12 +324,12 @@ def show():
         
         # ---------- แถวที่ 6: จุดซื้อ-ขาย ----------
         st.markdown("---")
-        st.subheader("🎯 จุดซื้อ-ขาย")
+        st.subheader("🎯 จุดซื้อ-ขาย แนะนำ")
         
-        # คำนวณแนวรับ-แนวต้าน
-        recent = st.session_state["closes"][-10:]
-        support = min(recent) * 0.98
-        resistance = max(recent) * 1.02
+        # คำนวณแนวรับ-แนวต้านจากข้อมูลจริง
+        recent_prices = st.session_state["closes"][-10:]
+        support = min(recent_prices) * 0.98
+        resistance = max(recent_prices) * 1.02
         strong_support = min(st.session_state["closes"][-20:]) * 0.95
         strong_resistance = max(st.session_state["closes"][-20:]) * 1.05
         
@@ -362,12 +364,3 @@ def show():
         
         # ---------- เวลาอัปเดท ----------
         st.caption(f"⏱️ ข้อมูลล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
-        
-        # ---------- ทิ้งท้าย ----------
-        st.markdown("---")
-        st.markdown(
-            "<div style='text-align: center; color: gray;'>"
-            "💰 ข้อมูลจาก SET SMART API | เทรดอย่างมีสติ"
-            "</div>",
-            unsafe_allow_html=True
-        )
