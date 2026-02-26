@@ -1,6 +1,6 @@
 """
 📁 pages/short_term.py
-หน้าเล่นสั้น - ดึงข้อมูลจาก SET SMART API จริง 100%
+หน้าเล่นสั้น - ดึงข้อมูลจาก SET SMART API จริง พร้อมระบบยืนยันก่อนซื้อ
 """
 
 import streamlit as st
@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 import requests
 
 # ============================================
-# ส่วนที่ 1: เรียก API (ของจริงเท่านั้น!)
+# ส่วนที่ 1: เรียก API (ของจริง)
 # ============================================
 
 @st.cache_data(ttl=10)
 def get_realtime_price(symbol):
-    """ดึงราคาปัจจุบันจาก SET SMART API จริง"""
+    """ดึงราคาปัจจุบันจาก SET SMART API"""
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
         url = f"https://api.setsmart.com/realtime/{symbol}"
@@ -39,13 +39,15 @@ def get_realtime_price(symbol):
                 "prev_close": data.get("prev_close", 0)
             }
         else:
+            st.error(f"❌ API Error {response.status_code}")
             return None
-    except:
+    except Exception as e:
+        st.error(f"❌ ไม่สามารถเชื่อมต่อ API: {e}")
         return None
 
 @st.cache_data(ttl=60)
 def get_historical_prices(symbol, days=45):
-    """ดึงราคาย้อนหลังจาก SET SMART API จริง"""
+    """ดึงราคาย้อนหลังจาก SET SMART API"""
     try:
         api_key = st.secrets["SETSMART_API_KEY"]
         url = f"https://api.setsmart.com/historical/{symbol}"
@@ -68,7 +70,8 @@ def get_historical_prices(symbol, days=45):
                 
                 return dates, closes, opens, highs, lows, volumes
         return None, None, None, None, None, None
-    except:
+    except Exception as e:
+        st.error(f"❌ ไม่สามารถดึงข้อมูลย้อนหลัง: {e}")
         return None, None, None, None, None, None
 
 # ============================================
@@ -123,16 +126,14 @@ def elliott_wave(prices):
         return "🌊 คลื่น 4 (พักตัว)", "hold", recent_high
 
 # ============================================
-# ส่วนที่ 3: หน้าจอหลัก (ใช้ API จริงเท่านั้น)
+# ส่วนที่ 3: หน้าจอหลัก
 # ============================================
 
 def show():
     st.markdown("# ⚡ เล่นสั้น - วิเคราะห์รายตัว")
     st.markdown("---")
     
-    # ============================================
     # เลือกหุ้น
-    # ============================================
     col1, col2 = st.columns([3, 1])
     
     with col1:
@@ -142,45 +143,38 @@ def show():
     with col2:
         refresh = st.button("🔄 รีเฟรช", use_container_width=True)
     
-    # ============================================
-    # ดึงข้อมูลจาก API เท่านั้น!
-    # ============================================
+    # ดึงข้อมูล
     if refresh or "last_symbol" not in st.session_state or st.session_state["last_symbol"] != selected:
         
         st.session_state["last_symbol"] = selected
         
-        with st.spinner(f"⚡ กำลังดึงข้อมูล {selected} จาก API..."):
+        with st.spinner(f"⚡ กำลังดึงข้อมูล {selected}..."):
             
-            # 1. ดึงราคาปัจจุบัน
             rt = get_realtime_price(selected)
-            
             if rt is None:
                 st.error(f"❌ ไม่สามารถดึงข้อมูล {selected} ได้")
                 st.stop()
             
-            # 2. ดึงข้อมูลย้อนหลัง
             dates, closes, opens, highs, lows, volumes = get_historical_prices(selected, 45)
-            
             if dates is None:
                 st.error(f"❌ ไม่สามารถดึงข้อมูลย้อนหลังของ {selected} ได้")
                 st.stop()
             
-            # 3. คำนวณค่าทางเทคนิค
+            # คำนวณค่าต่างๆ
             rsi = calculate_rsi(closes)
             ma5 = calculate_ma(closes, 5)
             ma10 = calculate_ma(closes, 10)
             ma20 = calculate_ma(closes, 20)
             wave, wave_signal, wave_target = elliott_wave(closes)
             
-            # 4. คำนวณ Volume เฉลี่ย
+            # Volume เฉลี่ย
             if len(volumes) > 20:
                 avg_vol = sum(volumes[-21:-1]) / 20
             else:
                 avg_vol = rt["volume"]
-            
             vol_ratio = rt["volume"] / avg_vol if avg_vol > 0 else 1
             
-            # 5. เก็บข้อมูลทั้งหมดใน session_state
+            # เก็บใน session
             st.session_state.update({
                 "rt": rt,
                 "dates": dates,
@@ -200,48 +194,38 @@ def show():
                 "vol_ratio": vol_ratio
             })
     
-    # ============================================
-    # แสดงผล (ใช้ข้อมูลจาก session_state เท่านั้น)
-    # ============================================
+    # แสดงผล
     if "rt" in st.session_state:
         rt = st.session_state["rt"]
         
-        # ---------- แถวที่ 1: ราคา ----------
+        # แถวที่ 1: ราคา
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
             delta = f"{rt['change']:+.2f} ({rt['change_pct']:+.2f}%)"
             st.metric("💰 ราคาปัจจุบัน", f"{rt['current']:.2f}", delta)
-        
         with col2:
             st.metric("📊 ราคาเปิด", f"{rt['open']:.2f}")
-        
         with col3:
             st.metric("📈 สูงสุด", f"{rt['high']:.2f}")
-        
         with col4:
             st.metric("📉 ต่ำสุด", f"{rt['low']:.2f}")
         
-        # ---------- แถวที่ 2: Volume + RSI ----------
+        # แถวที่ 2: Volume + RSI
         col1, col2, col3, col4 = st.columns(4)
-        
         with col1:
             st.metric("📦 ปริมาณ", f"{rt['volume']/1_000_000:.2f}M", f"{st.session_state['vol_ratio']:.2f}x")
-        
         with col2:
             rsi_val = st.session_state["rsi"]
             status = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else "neutral"
             st.metric("📊 RSI (14)", f"{rsi_val}", status)
-        
         with col3:
             ma20_val = st.session_state["ma20"]
             status = "above" if rt["current"] > ma20_val else "below"
             st.metric("📉 MA20", f"{ma20_val:.2f}", status)
-        
         with col4:
             st.metric("📈 Bid/Offer", f"{rt['bid']:.2f} / {rt['offer']:.2f}")
         
-        # ---------- แถวที่ 3: Elliott Wave ----------
+        # แถวที่ 3: Elliott Wave
         wave = st.session_state["wave"]
         wave_signal = st.session_state["wave_signal"]
         wave_target = st.session_state["wave_target"]
@@ -255,12 +239,11 @@ def show():
         else:
             st.info(f"🌊 {wave} - 🎯 เป้าหมาย {wave_target:.2f} (⚪ รอดู)")
         
-        # ---------- แถวที่ 4: กราฟแท่งเทียน ----------
+        # แถวที่ 4: กราฟแท่งเทียน
         st.markdown("---")
-        st.subheader("📈 กราฟแท่งเทียน (ข้อมูลจาก API)")
+        st.subheader("📈 กราฟแท่งเทียน")
         
         fig = go.Figure()
-        
         fig.add_trace(go.Candlestick(
             x=st.session_state["dates"][-30:],
             open=st.session_state["opens"][-30:],
@@ -270,16 +253,15 @@ def show():
             name="ราคา"
         ))
         
-        # MA5
         ma5_vals = pd.Series(st.session_state["closes"][-30:]).rolling(5).mean()
+        ma20_vals = pd.Series(st.session_state["closes"][-30:]).rolling(20).mean()
+        
         fig.add_trace(go.Scatter(
             x=st.session_state["dates"][-30:], y=ma5_vals,
             mode='lines', name='MA5',
             line=dict(color='orange', width=1.5)
         ))
         
-        # MA20
-        ma20_vals = pd.Series(st.session_state["closes"][-30:]).rolling(20).mean()
         fig.add_trace(go.Scatter(
             x=st.session_state["dates"][-30:], y=ma20_vals,
             mode='lines', name='MA20',
@@ -291,14 +273,12 @@ def show():
             xaxis_rangeslider_visible=False,
             template="plotly_white"
         )
-        
         st.plotly_chart(fig, use_container_width=True)
         
-        # ---------- แถวที่ 5: กราฟ Volume ----------
-        st.subheader("📊 ปริมาณซื้อขาย (ข้อมูลจาก API)")
+        # แถวที่ 5: กราฟ Volume
+        st.subheader("📊 ปริมาณซื้อขาย")
         
         fig_vol = go.Figure()
-        
         colors = ['green' if v > st.session_state["avg_vol"] else 'red' for v in st.session_state["volumes"][-30:]]
         
         fig_vol.add_trace(go.Bar(
@@ -315,32 +295,24 @@ def show():
             annotation_text=f"เฉลี่ย {st.session_state['avg_vol']/1_000_000:.1f}M"
         )
         
-        fig_vol.update_layout(
-            height=300,
-            template="plotly_white"
-        )
-        
+        fig_vol.update_layout(height=300, template="plotly_white")
         st.plotly_chart(fig_vol, use_container_width=True)
         
-        # ---------- แถวที่ 6: จุดซื้อ-ขาย ----------
+        # แถวที่ 6: จุดซื้อ-ขาย
         st.markdown("---")
         st.subheader("🎯 จุดซื้อ-ขาย แนะนำ")
         
-        # คำนวณแนวรับ-แนวต้านจากข้อมูลจริง
         recent_prices = st.session_state["closes"][-10:]
         support = min(recent_prices) * 0.98
         resistance = max(recent_prices) * 1.02
         strong_support = min(st.session_state["closes"][-20:]) * 0.95
-        strong_resistance = max(st.session_state["closes"][-20:]) * 1.05
         
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("### 🟢 จุดซื้อ")
             st.markdown(f"**โซนซื้อ:** {support:.2f} - {rt['current']:.2f}")
             st.markdown(f"**จุดช้อน:** {support:.2f}")
             st.markdown(f"**RSI:** {st.session_state['rsi']}")
-        
         with col2:
             st.markdown("### 🔴 จุดขาย / Cut loss")
             st.markdown(f"**TP1:** {rt['current']*1.02:.2f} (+2%)")
@@ -348,19 +320,69 @@ def show():
             st.markdown(f"**Cut loss:** {rt['current']*0.97:.2f} (-3%)")
             st.markdown(f"**แนวต้าน:** {resistance:.2f}")
         
-        # ---------- แนวรับ-แนวต้านละเอียด ----------
-        with st.expander("📊 แนวรับ-แนวต้าน (ละเอียด)"):
-            levels = pd.DataFrame({
-                "ระดับ": ["แนวรับแข็ง", "แนวรับ", "ราคาปัจจุบัน", "แนวต้าน", "แนวต้านแข็ง"],
-                "ราคา": [f"{strong_support:.2f}", f"{support:.2f}", f"{rt['current']:.2f}", 
-                        f"{resistance:.2f}", f"{strong_resistance:.2f}"],
-                "ระยะทาง": [f"-{(rt['current'] - strong_support)/rt['current']*100:.1f}%",
-                           f"-{(rt['current'] - support)/rt['current']*100:.1f}%",
-                           "0%",
-                           f"+{(resistance - rt['current'])/rt['current']*100:.1f}%",
-                           f"+{(strong_resistance - rt['current'])/rt['current']*100:.1f}%"]
-            })
-            st.dataframe(levels, use_container_width=True)
+        # ============================================
+        # ส่วนที่ 4: ระบบยืนยันก่อนซื้อ (เพิ่มความปลอดภัย)
+        # ============================================
+        st.markdown("---")
+        st.subheader("⚠️ ระบบเตือนภัย ก่อนซื้อ-ขาย")
         
-        # ---------- เวลาอัปเดท ----------
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 🔍 ตรวจสอบราคา")
+            st.markdown(f"**ราคาปัจจุบัน:** {rt['current']:.2f}")
+            st.markdown(f"**ราคา Bid/Offer:** {rt['bid']:.2f} / {rt['offer']:.2f}")
+            
+            spread = rt['offer'] - rt['bid']
+            if spread > rt['current'] * 0.02:
+                st.warning("⚠️ Spread กว้างผิดปกติ")
+            else:
+                st.success("✅ Spread ปกติ")
+            
+            if st.session_state['vol_ratio'] < 0.5:
+                st.warning("⚠️ Volume ต่ำ")
+            elif st.session_state['vol_ratio'] > 3:
+                st.success("🔥 Volume สูง")
+        
+        with col2:
+            st.markdown("### 🛡️ ความเสี่ยง")
+            rsi_val = st.session_state['rsi']
+            if rsi_val > 70:
+                st.error(f"🔴 RSI {rsi_val} - สูงเกินไป")
+                risk_level = "สูง"
+            elif rsi_val < 30:
+                st.success(f"🟢 RSI {rsi_val} - ต่ำ เหมาะซื้อ")
+                risk_level = "ต่ำ"
+            else:
+                st.info(f"🟡 RSI {rsi_val} - ปานกลาง")
+                risk_level = "ปานกลาง"
+            
+            if st.session_state['wave_signal'] == "sell":
+                st.error("🌊 Elliott Wave บอกขาย!")
+            
+            st.markdown(f"**ระดับความเสี่ยง:** {risk_level}")
+        
+        # ปุ่มยืนยัน
+        st.markdown("---")
+        st.subheader("✅ ยืนยันคำสั่งซื้อ-ขาย")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🟢 ซื้อที่ราคาตลาด", use_container_width=True):
+                if risk_level == "สูง":
+                    st.error("❌ เสี่ยงสูงเกินไป ไม่แนะนำให้ซื้อ!")
+                else:
+                    st.success(f"✅ ยืนยันซื้อ {selected} ที่ {rt['current']:.2f}")
+        
+        with col2:
+            if st.button("🔴 ขายที่ราคาตลาด", use_container_width=True):
+                st.success(f"✅ ยืนยันขาย {selected} ที่ {rt['current']:.2f}")
+        
+        with col3:
+            if st.button("⏸️ ตั้ง Limit Order", use_container_width=True):
+                limit_price = (support + rt['current']) / 2
+                st.info(f"ตั้งซื้อที่ {limit_price:.2f}")
+        
+        # เวลาอัปเดท
         st.caption(f"⏱️ ข้อมูลล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
